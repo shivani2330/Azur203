@@ -1,0 +1,883 @@
+1. Creating a VM in azure cli 
+
+  az group create --name myResourceGroup --location eastus
+
+  az vm create --resource-group myResourceGroupp --name demovm --image win2019datacenter --admin-username azureuse
+
+  https://docs.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-template
+
+
+2.Installing IIS (Web server) : 
+        
+
+       Install-WindowsFeature -name Web-Server -IncludeManagementTools
+
+      to open TCP port 80 for use with the IIS web server:
+
+       az vm open-port --port 80 --resource-group myResourceGroup --name myVM  (IIS)
+
+
+      az vm open-port --port 8172 --resource-group myResourceGroup --name myVM (Azure VM)
+
+      Setting the public IP as static and giving a DNS name 
+
+      #az network public-ip update -g MyResourceGroup -n MyIp --dns-name MyLabel --allocation-method Static
+
+       Open a PowerShell prompt on the VM and run the following command:
+
+       $logLabel = $((get-date).ToString("yyyyMMddHHmmss"))
+
+       Import-Module -Name ServerManager
+
+       Install-WindowsFeature -Name Web-Server -IncludeManagementTools -LogPath "$env:TEMP\init-webservervm_webserver_install_log_$logLabel.txt"
+
+
+       Use CustomScript extension to install IIS.
+
+     Set-AzVMExtension -ResourceGroupName "myResourceGroupAutomate" `
+       -ExtensionName "IIS" `
+       -VMName "myVM" `
+       -Location "EastUS" `
+       -Publisher Microsoft.Compute `
+       -ExtensionType CustomScriptExtension `
+       -TypeHandlerVersion 1.8 `
+       -SettingString '{"commandToExecute":"powershell Add-WindowsFeature Web-Server; powershell Add-Content -Path \"C:\\inetpub\\wwwroot\\Default.htm\" -Value $($env:computername)"}'
+
+Azure web Apps 
+
+ 
+ PAAS 
+ Underlining infrastructure i.e managing the infrastructure 
+ Azure App Service tells us the features that the web app will have and also the price the app will be bearing per month
+
+ Free / Shared 
+
+ ----> limit of Cpu usage per day max 60 min 
+
+ Basic : 
+
+ Unlimited no of web app 
+ Unlimited cpu usage per day
+ max instance ---scale up to 3 
+ 
+ We can deploy mutilple azure web app on a single azure service plan 
+
+ az appservice plan create --name StaticAppServicePlan --resource-group StaticResourceGroup --sku FREE
+
+ az webapp create --name MyQuizApplication --resource-group StaticResourceGroup --plan StaticAppServicePlan --deployment-local-git
+ https://docs.microsoft.com/en-us/cli/azure/webapp?view=azure-cli-latest
+
+ # Create a Web App and save the URL
+ url=$(az webapp create --name $appName --plan AppServiceMonitorPlan --resource-group myResourceGroup --query defaultHostName | sed -e 's/^"//' -e 's/"$//')
+
+  App Service logs : 
+
+  Applicaton Logging : This captures log message that are generated while by your app code
+  Web Server logging : This records raw HTTP data
+  Detailed Error messages : Copies the htm. error page that would have being sent ot the client . 
+  Deployment logging : 
+ 
+ # Enable all logging options for the Web App
+ az webapp log config --name $appName --resource-group myResourceGroup --application-logging true --detailed-error-messages true --failed-request-tracing true --web-server-logging filesystem
+
+ # Create a Web Server Log
+ curl -s -L $url/404
+
+ # Download the log files for review
+ az webapp log download --name $webappname --resource-group myResourceGroup
+
+  https://docs.microsoft.com/en-us/cli/azure/webapp/log?view=azure-cli-latest
+
+ # Configure continuous deployment from Visual Studio Team Services. 
+ # --git-token parameter is required only once per Azure account (Azure remembers token).
+ az webapp deployment source config --name $webappname --resource-group myResourceGroup \
+ --repo-url $gitrepo --branch master --git-token $token
+
+ # Copy the result of the following command into a browser to see the web app.
+ echo http://$webappname.azurewebsites.net
+
+ # Deploy code from a public GitHub repository. 
+ az webapp deployment source config --name $webappname --resource-group myResourceGroup \
+ --repo-url $gitrepo --branch master --manual-integration
+
+ # Copy the result of the following command into a browser to see the staging slot.
+ echo http://$webappname-staging.azurewebsites.net
+
+ # Swap the verified/warmed up staging slot into production.
+ az webapp deployment slot swap --name $webappname --resource-group myResourceGroup \
+ --slot staging
+
+ # Copy the result of the following command into a browser to see the web app in the production slot.
+ echo http://$webappname.azurewebsites.net
+
+  # Map your prepared custom domain name to the web app.
+ az webapp config hostname add --webapp-name $webappname --resource-group $resourceGroup \
+ --hostname $fqdn
+
+  # Upload the SSL certificate and get the thumbprint.
+ thumbprint=$(az webapp config ssl upload --certificate-file $pfxPath \
+ --certificate-password $pfxPassword --name $webappname --resource-group $resourceGroup \
+ --query thumbprint --output tsv)
+
+ # Binds the uploaded SSL certificate to the web app.
+ az webapp config ssl bind --certificate-thumbprint $thumbprint --ssl-type SNI \
+ --name $webappname --resource-group $resourceGroup
+
+ Azure App Configuration : 
+ Central place to manage the app setting . 
+
+ ConfigureAppConfiguartion : 
+
+ App configuration (Create)---Configiraton explorer .
+
+ az appconfig create -g MyResourceGroup -n MyAppConfiguration -l westus --sku Standard --tags key1=value1 key2=value2 
+
+ # Get the AppConfig connection string 
+  appConfigConnectionString=$(az appconfig credential list \
+ --resource-group $myResourceGroupName \
+ --name $myAppConfigStoreName \
+ --query "[?name=='Secondary Read Only'] .connectionString" -o tsv)
+
+  appConfigName=myTestAppConfigStore
+ newKey="TestKey"
+ refKey="KeyVaultReferenceTestKey"
+ uri="[URL to value stored in Key Vault]"
+ uri2="[URL to another value stored in Key Vault]"
+
+ # Create a new key-value 
+ az appconfig kv set --name $appConfigName --key $newKey --value "Value 1"
+
+ # List current key-values
+ az appconfig kv list --name $appConfigName
+
+ # Update new key's value
+ az appconfig kv set --name $appConfigName --key $newKey --value "Value 2"
+
+ # List current key-values
+ az appconfig kv list --name $appConfigName
+
+ # Create a new key-value referencing a value stored in Azure Key Vault
+ az appconfig kv set-keyvault  --name $appConfigName --key $refKey --secret-identifier $uri
+
+ # List current key-values
+ az appconfig kv list --name $appConfigName
+
+ # Update Key Vault reference
+ az appconfig kv set-keyvault --name $appConfigName --key $refKey --secret-identifier $uri2
+
+ # List current key-values
+ az appconfig kv list --name $appConfigName
+
+ # Delete new key
+ az appconfig kv delete  --name $appConfigName --key $newKey
+
+ # Delete Key Vault reference
+ az appconfig kv delete --name $appConfigName --key $refKey
+
+ # List current key-values
+ az appconfig kv list --name $appConfigName
+
+ # Export all key-values
+ az appconfig kv export --name myTestAppConfigStore --file ~/Export.json
+ 
+ # Import all key-values
+ az appconfig kv import --name myTestAppConfigStore --file ~/Export.json
+
+  # Scale Web App to 2 Workers
+ az appservice plan update --number-of-workers 2 --name AppServiceManualScalePlan --resource-group myResourceGroup
+
+ Scaling based on conditions : 
+
+ az monitor autoscale create \
+  --resource-group myResourceGroup \
+  --resource myScaleSet \
+  --resource-type Microsoft.Compute/virtualMachineScaleSets \
+  --name autoscale \
+  --min-count 2 \
+  --max-count 10 \
+  --count 2
+
+  Auto scale Out : 
+  az monitor autoscale rule create \
+  --resource-group myResourceGroup \
+  --autoscale-name autoscale \
+  --condition "Percentage CPU > 70 avg 5m" \
+  --scale out 3
+
+  Auto scale in : 
+
+  az monitor autoscale rule create \
+  --resource-group myResourceGroup \
+  --autoscale-name autoscale \
+  --condition "Percentage CPU < 30 avg 5m" \
+  --scale in 1
+
+  $condition = az monitor metrics alert condition create -t dynamic 
+
+             --aggregation Average 
+
+              --metric "CPU Percentage" 
+
+             --op GreaterOrLessThan 
+
+             --num-violations 4 
+
+             --num-periods 4 
+
+             --since 2020-11-02T12:11
+
+  generating stress on the CPU : 
+  
+  sudo apt-get -y install stress
+  sudo stress --cpu 10 --timeout 420 &
+CORS :
+
+  Manage Cross-Origin Resource Sharing (CORS):  
+
+  az webapp cors add -g {myRG} -n {myAppName} --allowed-origins https://myapps.com
+
+
+ #Create a deployment slot with the name "staging".
+ az webapp deployment slot create --name $webappname --resource-group myResourceGroup \
+ --slot staging
+ # Deploy code from a public GitHub repository. 
+ az webapp deployment source config --name $webappname --resource-group myResourceGroup \
+ --repo-url $gitrepo --branch master --manual-integration
+
+ # Deploy code from a public GitHub repository. 
+ az webapp deployment source config --name $webappname --resource-group myResourceGroup \
+ --repo-url $gitrepo --branch master --manual-integration
+
+ #Create a deployment slot with the name "staging".
+ az webapp deployment slot create --name $webappname --resource-group myResourceGroup \
+ --slot staging
+
+ # Deploy sample code to "staging" slot from GitHub.
+ az webapp deployment source config --name $webappname --resource-group myResourceGroup \
+ --slot staging --repo-url $gitrepo --branch master --manual-integration
+
+ # Create a SQL Database server
+ az sql server create --name $serverName --resource-group myResourceGroup \
+ --location $location --admin-user $username --admin-password $sqlServerPassword
+
+
+ # Configure firewall for Azure access
+ az sql server firewall-rule create --server $serverName --resource-group myResourceGroup \
+ --name AllowYourIp --start-ip-address $startip --end-ip-address $endip
+
+
+ # Create a database called 'MySampleDatabase' on server
+ az sql db create --server $serverName --resource-group myResourceGroup --name MySampleDatabase \
+ --service-objective S0
+
+ # Update setting for Public Network Access
+ az sql server update -n sql-server-name -g sql-server-group --set publicNetworkAccess="Disabled"
+
+  Azure Funtions App :
+ an app cld be invoking many fucntion , we can decouple the fuction , we can put the function as a part of azure , instaed of embedding the fucntion in the application code 
+
+ https://docs.microsoft.com/en-us/cli/azure/functionapp?view=azure-cli-latest#az_functionapp_create
+
+ # Create a serverless function app in the resource group.
+ az functionapp create \
+  --name $functionAppName \
+  --storage-account $storageName \
+  --consumption-plan-location $region \
+  --resource-group myResourceGroup \
+  --functions-version 2
+  --os-type {Linux, Windows}
+  --plan
+  --app-insights
+
+
+  Code runs on servers hosted by the cloud provider. Developers write and deploy code without worrying about the infrastructure required to execute it.
+
+ Typically, when a developer needs to run code, they had to set up and maintain their own server. Configuring servers for applications is a time-consuming activity and often not a developer’s strength.
+
+ Serverless computing eliminates this infrastructure barrier for developers. Servers are still running the code, but developers no longer need to worry about them. Developers can quickly deploy code without waiting for system administrators to install servers, patch operating systems, or configure networking.
+
+Azure Functions (capitalized) – This is the name of the service 
+
+ Function App – This is an “instance” of Azure Functions. It’s a single application.
+
+ Function – This a function defined purely in code. You can have multiple functions (lowercase) inside of a single Function App.
+ 
+ The trigger is responsible for executing an Azure function
+
+
+ 
+ HTTP trigger: Receiving an HTTP request, like interacting with an API to retrieve the application’s information.
+
+ Timer trigger: Running on a schedule, such as sending reminders once a day about upcoming appointments.
+
+ Azure Blob Storage trigger: Running on blob storage object creation, such as generating thumbnails of uploaded images.
+
+ Azure Event Grid trigger: Running on a new event in an Event Grid subscription, such as sending a notification when a new virtual machine is created in a resource group.
+
+ Azure Functions is a service that consists of various functions. When running, a function can connect to other Azure services. To do that, a function requires a binding. A binding is code that “links” one Azure service to another and has a direction (in or out). That binding direction refers to how the “linked” Azure service sends or receives information from the function.
+
+ Storage Account: Access blobs, tables, and queues in a storage account, such as saving records to a table.
+
+ Azure Cosmos DB: Interact with records in Cosmos DB, such as updating or creating new documents.
+
+ Third-Party Apps: Connect to outside apps like Twilio for sending text messages
+
+
+ Hosting Plans
+
+
+  Even though you don’t have to manage the server running the code in a function, you must still tell Azure a little bit about how you intend to use it. Azure Functions’ infrastructure is defined via hosting plans. Hosting plans dictates what operating system the code runs on, its scaling ability, and availability.
+
+  By default, Azure sets the runtime version to 3.x when creating Functions in the Azure Portal and Azure CLI.
+
+
+
+
+
+Azure Durable functions 
+
+ Stateless 
+
+ Orchestrator fucntn -- maintaining the worflow , rememebering the function ---> Activity fucntion (that will do the work)
+ Starter fucntion --> invoke the Orchestrator function  
+
+Azure Storage acc 
+  Blob
+  Queue
+  File
+
+  Limitation: 
+
+  if file is > 2 megabyte the wont file be able to view . 
+
+  Standard ---> For storing blobs , files , queues. 
+  Premium ---> For storing unmanaged virtual machine disks 
+
+
+  data Reduncy : 
+
+  LRS ---> Local strategy 
+
+  When we save a files in blob storage , it saves it in a single Storage Scale unit which asynn
+
+  ZRS --> it saves it in a single Storage Scale unit , into seperate 3  AZ zone . 
+
+  Geo ---> we have 6 copeis of the data , through the region the data id copied sync , but accross region it is copied async . We would not be able to read data  
+
+  RA-GRS ---->  we have 6 copeis of the data , through the region the data id copied sync , but accross region it is copied async . We would  be able to read data  
+
+
+
+
+  az storage account create -n mystorageaccount -g MyResourceGroup -l westus --sku Standard_LRS
+
+  az storage container create -n mystoragecontainer
+
+
+
+ az storage container exists --account-name mystorageccount --account-key 00000000 --name mycontainer
+
+ end=`date -u -d "30 minutes" '+%Y-%m-%dT%H:%MZ'`
+ sas=`az storage container generate-sas -n mycontainer --https-only --permissions dlrw --expiry $end -o tsv`
+ 
+ az storage container generate-sas --account-name mystorageaccount --as-user --auth-mode login --expiry 2020-01-01 --name container1 --permissions rwacdl
+
+ --auth-mode login --->  The mode in which to run the command. "login" mode will directly use your login credentials for the authentication.
+
+ --as-user ---> Indicates that this command return the SAS signed with the user delegation key. The expiry parameter and '--auth-mode login' are required if this argument is specified.
+
+ az storage container list
+
+ #Restore soft-deleted container.
+
+
+
+ az storage container restore -n deletedcontainer --deleted-version deletedversion
+
+ az storage container policy create -c hasontestsetacl -n acl3 --expiry 2018-01-01T00:00Z --permissions rwacdl
+
+
+
+ BLOB Actions : 
+  Connection String for SA has to be set . 
+
+ az storage blob metadata show --connection-string $ConnString --account-name $StorageAcc --container-name $ContainerName --name "$i" | grep "\"downloaded\""
+
+ az storage blob metadata update --connection-string $ConnString --account-name $StorageAcc --container-name $ContainerName --name --metadata "author=azurecertifications@gmail.com" "type=blobfile"
+
+ az storage blob delete -c mycontainer -n MyBlob --account-name mystorageaccount --auth-mode login
+
+ az storage blob directory upload -c MyContainer --account-name MyStorageAccount -s "path/to/file*" -d directory --recursive
+
+ az storage blob generate-sas -c myycontainer -n MyBlob --permissions r --expiry $end --https-only
+  
+ az storage blob list --connection-string $ConnString --account-name $StorageAcc --container-name $ContainerName
+
+ By defaukt when we are uploading blob it goes under the HOT access tier . 
+
+ Hot access tier ---> Data being used frequently . (High cost )
+ Cool Access tier ---> Data being used less frequently and stored for less than 30 days . 
+ Archive tier --->  Stored for atleat 180 days. ()
+
+ Hot and cool --->Enabled at SA level
+ Archive -->Enabled at blob level 
+
+ Blob Access tier --- Archive access -- We cant direcly access the object , we need t rehydrate the file , here you need to change the file access tier to either cool or hot . 
+
+ Rehydration --- Standard Priority --> Here the requests is processed as in the order it is recieved and it can tak upto 15 hr 
+                High  Priority ---> Here the request is prioritzed and it can take upto 1 hr for obj under 1 GB in size . 
+
+ az storage account management-policy create --account-name myaccount --policy @policy.json --resource-group myresourcegroup
+ 
+ Lifecycle management rule : 
+
+ {
+  "rules": [
+    {
+      "name": "rule1",
+      "enabled": true,
+      "type": "Lifecycle",
+      "definition": {...}
+    },
+    {
+      "name": "rule2",
+      "type": "Lifecycle",
+      "definition": {...}
+    }
+  ]
+ }
+
+ At least one rule is required in a policy. You can define up to 100 rules in a policy.
+
+ {
+  "rules": [
+    {
+      "enabled": true,
+      "name": "sample-rule",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "version": {
+            "delete": {
+              "daysAfterCreationGreaterThan": 90   # Delete previous blob versions 90 days after creation
+            }
+          },
+          "baseBlob": {
+            "tierToCool": {
+              "daysAfterModificationGreaterThan": 30  #Tier blob to cool tier 30 days after last modification
+            },
+            "tierToArchive": {
+              "daysAfterModificationGreaterThan": 90 #Tier blob to archive tier 90 days after last modification
+            },
+            "delete": {
+              "daysAfterModificationGreaterThan": 2555  # Delete blob 2,555 days (seven years) after last modification
+            }
+          }
+        },
+        "filters": {
+          "blobTypes": [
+            "blockBlob"   # blockBlob and appendBlob . Only Delete is supported in appendBlob
+          ],
+          "prefixMatch": [
+            "sample-container/blob1"   # If you don't define prefixMatch, the rule applies to all blobs within the storage account.
+          ]
+        }
+      }
+    }
+  ]
+  }
+
+    The enableAutoTierToHotFromCool property is a Boolean value that indicates whether a blob should automatically be tiered from cool back to hot if it is accessed again after being tiered to cool.
+
+    {
+    "rules": [
+        {
+            "enabled": true,
+            "name": "DeleteContosoData",
+            "type": "Lifecycle",
+            "definition": {
+                "actions": {
+                    "baseBlob": {
+                        "delete": {
+                            "daysAfterModificationGreaterThan": 0
+                        }
+                    }
+                },
+                "filters": {
+                    "blobIndexMatch": [
+                        {
+                            "name": "Project",
+                            "op": "==",
+                            "value": "Contoso"
+                        }
+                    ],
+                    "blobTypes": [
+                        "blockBlob"
+                    ]
+                }
+            }
+        }
+    ]
+    }
+
+    Azure Blob Snapshot 
+    read only version of the blob ---> Kind of a backup of the blob. 
+
+
+    Soft Delete : 
+
+    We have the ability to recover the blobs that were deleted .
+
+    Lease :
+
+    Multiple client that are trying to access the same blob . 
+
+    Blob storage ---> seperated by conatiners. 
+
+ 
+Azure File Share : 
+
+
+   Files ----->Shares --->Files 
+
+   Files Share storage : 
+
+   if we have a lift and shift scenorio 
+
+
+Azure Table Storage 
+
+	Non relational data 
+	No SQL
+	Each row is termed as entity (key:value)  
+
+	Serveless Application : 
+
+	Upto 20k/per rows (1KiB/row) 
+
+
+	Entity -->Properties
+
+	Storing TB's of structures data 
+	data can be denormalized 
+	No need of complex join 
+	JSON serializavle data
+   Azure Queue : 
+
+  Azure Queue Storage is a service for storing large numbers of messages. You access messages from anywhere in the world via authenticated calls using HTTP or HTTPS. A queue message can be up to 64 KB in size. A queue may contain millions of messages, up to the total capacity limit of a storage account. Queues are commonly used to create a backlog of work to process asynchronously.
+
+  The messages in the storage queue are not replicated anywhere, that means there is only one copy of your message. The maximum number of messages that can be processed are 20,000. The maximum size of a message can be 64 kb
+
+  Storage Queue ---> Queue ---->Messaging 
+
+Arm template : 
+
+ resourceGroup().location
+
+ {
+    "$schema":"https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion":"2019-04-01",
+            "name": "amdemostorageintro01",
+            "location": "northeurope",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "StorageV2"
+        }
+    ]
+     }
+
+      {
+    "$schema":"https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 24,
+            "defaultValue": "storage123"  #If no vlaue is provided then this will taken
+            "allowedValues": [
+            "abc"
+            ]
+        },
+
+        "stage": {
+         "defaultValue": "test",
+          "allowedValues": [
+            "dev",
+            "qa",
+            "prod"
+            ],
+
+        }
+    },
+
+    "variables": {
+
+    "storageName": "[concat( parameters('storageName'), 'rssa')]"
+
+    }
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",  #Deploying a Storage acc .
+            "apiVersion": "2019-04-01",
+            "name": "[parameters('storageName')]", 
+            # Parametrized value 
+
+            "name": "[variables('storageName')]", # When we have some variable 
+
+           //"name": "[uniqueString(resourceGroup().id)]", # For a uniqueString resource name generator 
+            "location": "northeurope",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "StorageV2"
+        }
+    ]
+  }
+
+    $rg = 'arm-introduction-02'
+    New-AzResourceGroup -Name $rg -Location northeurope -Force
+
+    New-AzResourceGroupDeployment -ResourceGroupName $rg `
+    -TemplateFile '.\02-storage-param-name.json' `
+    -StorageName 'amdemostorageintro02'
+
+
+    Parameter file : 
+
+
+    echo "" > 02-storage.json
+    echo "" > 02-storage.parameters.json
+
+   # replace files with code before running the rest
+
+    group='arm-parameter-files'
+
+   az group create -g $group -l northeurope
+
+   az group deployment create \
+    -g $group \
+    --template-file 02-storage.json \
+    --parameters @02-storage.parameters.json
+
+   az group deployment create \
+    -g $group \
+    --template-file 02-storage.json \
+    --parameters @02-storage.parameters.json \
+    --parameters storageAccountSKU=Standard_GRS 
+
+
+    Parameter JSON file : 
+
+     {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "value": "amdemostorage10a"
+        }
+    }
+  }
+
+
+Blob Conatiner 
+
+    
+  Dependencies : 
+
+  Storage access
+  ^
+  |
+  |
+  |
+
+  Depends on 
+
+  Blob Conatiner
+   
+
+    listKeys(
+   		"resourceId":(
+   		'Microsoft.Storage/storageAccounts',
+   		'myaccount'
+   		),
+   		'2021-09-02'
+    ).keys[0].value
+
+
+   Circular dependendices 
+
+   the child parent should always be dependent on the parent 
+
+   ResourceId is preferred over the name to avoid ambiguity . 
+
+   {
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "type": "string"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2019-06-01",
+            "location": "[resourceGroup().location]",
+            "name": "[parameters('storageAccountName')]",
+            "sku": {
+                "name": "Standard_LRS"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+            "apiVersion": "2019-06-01",
+            "name": "[concat(parameters('storageAccountName'), '/default/input')]",
+            "dependsOn": [
+                "[parameters('storageAccountName')]"
+            ]
+        }
+    ],
+    "outputs": {},
+    "functions": []
+
+    }
+
+
+    copyIndex() --returns the current iteration in the loop 
+    It starts from 0  
+
+
+    "name":"[concat('myacc',copyIndex())]"
+
+
+    "name":"[concat('myacc',copyIndex('storageCopy',10))]"  ---> 10 is the offset value 
+
+    "copy":{
+       "name":"storageCopy",
+       "count":5
+    }
+
+    "condition": "[not(empty(parameter('SA')))]"
+
+    "storageAccountName": "[if(not(empty(parameters('storageAccountName'))), parameters('storageAccountName'), 'storage')]"
+
+  
+AZure AD :
+
+ Allows user to access resources 
+
+ Role based accss control : 
+
+ Owner manage everything including the resources
+
+ Contributer manage everything except the resources
+
+ Reader 
+
+ azure key vault 
+
+ create and manage the lifecyle of encyrption key , secrets and certificates
+
+
+ CyrtographgyClient class : 
+
+ used to perform cyrptographic operations with azure key vault 
+
+ Encrpytion needs to done on the underlying bytes . 
+
+
+ The permission by default for microsoft grapd API is User.Read
+
+
+ RBAC 
+ 	  
+
+Azure Cosmos DB: 
+
+
+ Fully managed NO SQL database 
+
+ SQL API , Table API , MongoDB API 
+
+ Partion key and ID , helps to uniquely indentify data within te entire container 
+
+ There is no concept of relationship , foreign key and primary . 
+
+ To relate data : 
+
+ 1 . embedd data 
+ 2. DeNormalize your data
+ 3. When there is contained relationship between entities 
+   When there is one to few relationship 
+   when embedded data is not changed frequently 
+
+   Time to live 
+
+   All items in the container 
+
+   az cosmosdb create -n newaccount5500 -g new-grp --default-consistency-level Session --locations regionName='West US 2' failoverPriority=0 isZoneRedundant=False
+
+  This command will do the following
+  a) Create an account with the name of newaccount6000
+
+  b) The default API is SQL API. Hence that is the API that will be chosen for the account
+
+  c) Here we have only one region which is the West US 2 region. This will be used as read and write region.
+
+  d) Here we are mentioning a consistency level of Session
+
+  You can use the following command to create an Azure Cosmos DB account with multiple regions
+
+  az cosmosdb create -n newaccount5200 -g new-grp --default-consistency-level Session --locations regionName='West US 2' failoverPriority=0 isZoneRedundant=False --locations regionName='East US 2' failoverPriority=1 isZoneRedundant=False
+
+  a) Here we are mentioning the primary region as West US 2. This is because we have mentioned a failoverPriority of 0 for this region.
+
+  If you want to create an Azure Cosmos DB account with the Table API, you can use the following command
+
+  az cosmosdb create -n newaccount6100 -g new-grp --default-consistency-level Session --locations regionName='West US 2' failoverPriority=0 isZoneRedundant=False --capabilities EnableTable
+
+  Here we mention the --capabilities optionAzure Docker Compute : 
+
+
+Azure contianer registry : 
+
+
+Azure Security :
+
+Use 0-Auth to use postman 
+
+Step 1 : Register the Application 
+
+Step 2 : Permissions via Role based access control 
+
+0-Auth Token endpoint (v1)
+
+Application Insights : 
+
+
+It helps us to understand how the users use the application 
+It also helps us to monitor and improve the performance of the application . 
+
+Request rates , response rates , page view , users and session count .
+
+Exception recorded by the application . 
+
+Dependency Tracking : 
+
+EnableSQlCommandTextInstrumentation = true 
+
+
+
+
+
+
+
+
+   
